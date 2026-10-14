@@ -1,0 +1,7 @@
+.login{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:calc(var(--safe-t) + 24px) max(24px,var(--safe-r)) calc(var(--safe-b) + 24px) max(24px,var(--safe-l));background:var(--paper)}
+.login-card{width:100%;max-width:360px;display:flex;flex-direction:column;gap:16px;margin:auto}
+.login-icon{align-self:center;border-radius:18px;box-shadow:var(--lift)}
+.login h1{margin:4px 0 0;text-align:center;font-family:var(--font-display);font-weight:400;font-size:clamp(40px,12vw,52px);line-height:1.02;letter-spacing:-.01em;font-variation-settings:"opsz" 144,"SOFT" 100,"WONK" 1}
+.login .tagline{margin:-6px 0 8px;text-align:center;font-family:var(--font-display);font-style:italic;font-size:19px;line-height:1.4;color:var(--ink-soft);font-variation-settings:"opsz" 20,"SOFT" 100}
+.login-error{margin:0;font-size:14px;color:var(--danger);font-weight:560}
+.login .btn{min-height:52px;font-size:17px;border-radius:16px}
