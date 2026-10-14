@@ -493,3 +493,75 @@ export function buildMilestoneRing(lite = false) {
   }
   return finish(b, [0, 4, 0], r, 6);
 }
+
+// Bola de follaje: esfera un poco irregular pintada con la paleta del árbol
+// (más oscura abajo y más clara arriba).
+function puff(b, c, r, rand) {
+  const v0 = b.n, i0 = b.i.length, R = 6, C = 10, rows = [];
+  const tint = 0.75 + rand() * 0.25;
+  for (let i = 0; i <= R; i++) {
+    const ph = (i / R) * Math.PI, row = [];
+    for (let j = 0; j < C; j++) {
+      const th = (j / C) * Math.PI * 2 + i * 0.35;
+      const d = [Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th)];
+      const k = i === 0 || i === R ? 1 : 0.9 + rand() * 0.16;
+      const t = Math.min(1, (0.12 + 0.88 * (0.5 + 0.5 * d[1])) * tint + rand() * 0.08);
+      row.push(b.vert(add(c, [d[0] * r * k, d[1] * r * k * 0.82, d[2] * r * k]), d, [0, 0, 0], 1, t));
+    }
+    rows.push(row);
+  }
+  for (let i = 0; i < R; i++)
+    for (let j = 0; j < C; j++) {
+      const j1 = (j + 1) % C;
+      b.tri(rows[i][j], rows[i + 1][j], rows[i][j1]);
+      b.tri(rows[i][j1], rows[i + 1][j], rows[i + 1][j1]);
+    }
+  b.normals(v0, i0);
+}
+
+// Árbol según su madurez m (0 arbolito, 1 árbol frondoso). kind 0: roble, 1: cerezo
+// (ramas más abiertas y copa de flores). Mide ~100 unidades; la escena lo escala según la edad.
+export function buildTree(kind, m) {
+  LITE = false;
+  const b = new MeshBuilder(), rand = rng(hashString(`tree|${kind}|${m}`));
+  const bark = hexToRgb(kind === 1 ? "#5a3e36" : "#6b4f3a");
+  const trunkH = 40 + 16 * m, r0 = 1.4 + 4.4 * m;
+  const top = [(rand() - 0.5) * 6, trunkH, (rand() - 0.5) * 3];
+  const trunk = stemCurve(top, [top[0] * 0.3, 0], 7);
+  tube(b, trunk, r0, r0 * 0.5, bark, 7);
+  const tips = [top];
+  const branches = Math.round(2 + 4 * m);
+  const rise = kind === 1 ? [20, 40] : [35, 58];
+  for (let k = 0; k < branches; k++) {
+    const at = pointAt(trunk, 0.55 + 0.4 * rand());
+    const yaw = k * 2.4 + rand() * 0.6, up = (rise[0] + rand() * (rise[1] - rise[0])) * DEG;
+    const len = (12 + 24 * m) * (0.8 + rand() * 0.4);
+    const dir = norm([Math.cos(yaw) * Math.cos(up), Math.sin(up), Math.sin(yaw) * Math.cos(up)]);
+    const end = add(at, scale(dir, len)), mid = add(add(at, scale(dir, len * 0.5)), [0, len * 0.1, 0]);
+    tube(b, [at, mid, end], r0 * 0.42, r0 * 0.16, bark, 5);
+    tips.push(end);
+    if (m >= 0.5) {
+      const side = norm(add(dir, [Math.cos(yaw + 1.6) * 0.8, 0.3, Math.sin(yaw + 1.6) * 0.8]));
+      const twig = add(mid, scale(side, len * 0.55));
+      tube(b, [mid, twig], r0 * 0.2, r0 * 0.1, bark, 4);
+      tips.push(twig);
+    }
+  }
+  // Copa: varias bolas de follaje alrededor de cada punta.
+  const pr = (kind === 1 ? 6 : 7.5) + (kind === 1 ? 7 : 9) * m;
+  let cx = 0, cy = 0, cz = 0, maxY = 0;
+  for (const tip of tips) {
+    const n = (kind === 1 ? 3 : 2) + Math.round(3 * m);
+    for (let q = 0; q < n; q++) {
+      const c = add(tip, [(rand() - 0.5) * pr * 1.5, (rand() - 0.25) * pr, (rand() - 0.5) * pr * 1.5]);
+      const r = pr * (0.65 + rand() * 0.5);
+      puff(b, c, r, rand);
+      cx += c[0];
+      cy += c[1];
+      cz += c[2];
+      maxY = Math.max(maxY, c[1] + r * 0.82);
+    }
+  }
+  const n = b.n ? tips.length * ((kind === 1 ? 3 : 2) + Math.round(3 * m)) : 1;
+  return finish(b, [cx / n, cy / n, cz / n], pr * 2.4, maxY);
+}
