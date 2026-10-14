@@ -44,9 +44,10 @@
     document.body.append(s);
   }
 
+  // La sesión se recuerda en este dispositivo hasta cerrar sesión.
   function readSession() {
     try {
-      return sessionStorage.getItem(SESSION_KEY);
+      return localStorage.getItem(SESSION_KEY);
     } catch {
       return null;
     }
@@ -54,9 +55,18 @@
 
   function saveSession(key) {
     try {
-      sessionStorage.setItem(SESSION_KEY, key);
+      localStorage.setItem(SESSION_KEY, key);
     } catch {}
   }
+
+  window.jardinSesion = {
+    cerrar() {
+      try {
+        localStorage.removeItem(SESSION_KEY);
+      } catch {}
+      location.reload();
+    },
+  };
 
   function el(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
