@@ -773,7 +773,7 @@ export class Scene3D {
       if (p.w <= 0 || p.x < -80 || p.y < -40 || p.x > this.width + 80 || p.y > this.height + 40) continue;
       const age = t.years > 0 ? `${t.years} ${t.years === 1 ? "año" : "años"}` : `${t.months} ${t.months === 1 ? "mes" : "meses"}`;
       const text = t.birthday ? `${t.name} · ¡${t.years} hoy!` : `${t.name} · ${age}`;
-      const w = Math.max(70, g.measureText(text).width + 22), h = 28, x = p.x - w / 2, y = p.y + 8;
+      const w = Math.max(70, g.measureText(text).width + 22), h = 28, x = clamp(p.x - w / 2, 6, Math.max(6, this.width - w - 6)), y = p.y + 8;
       g.beginPath();
       g.roundRect ? g.roundRect(x, y, w, h, 10) : g.rect(x, y, w, h);
       g.fillStyle = "rgba(28,40,33,.28)";
@@ -783,7 +783,7 @@ export class Scene3D {
       g.fillStyle = t.birthday ? "rgba(253,228,239,.96)" : "rgba(250,243,221,.94)";
       g.fill();
       g.fillStyle = "#2f4a3a";
-      g.fillText(text, p.x, y + 11);
+      g.fillText(text, x + w / 2, y + 11);
       const bw = w - 20, bx = x + 10, by = y + 19;
       this.pill(g, bx, by, bw, 4, "rgba(47,74,58,.16)");
       this.pill(g, bx, by, Math.max(4, bw * (t.birthday ? 1 : t.progress)), 4, TREES[t.kind].bar);
@@ -1287,6 +1287,7 @@ export class Scene3D {
     const fb = new this.deps.Scene2D(this.host, this.events);
     this.fb = fb;
     fb.setEntered?.(this.entered);
+    fb.setTrees?.(this.treeInput);
     fb.setInsets(state.insets.top, state.insets.bottom, state.insets.left, state.insets.right);
     fb.setMotion(state.motion, state.reduce);
     const name = Object.keys(this.deps.looks).find((k) => this.deps.looks[k] === state.look);
@@ -1294,7 +1295,8 @@ export class Scene3D {
     if (state.world) fb.setFlowers(state.world, false);
     fb.setMode(state.mode);
     if (state.selected) fb.select(state.selected);
-    if (state.running) fb.start();
+    // Si el contexto se perdió, la escena ya se había detenido: el 2D arranca si la página está visible.
+    if (state.running || !document.hidden) fb.start();
   }
 }
 
