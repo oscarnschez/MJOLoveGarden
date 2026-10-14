@@ -1,0 +1,7 @@
+# GitHub Pages publica la carpeta tal cual; el código fuente y las herramientas no hacen falta en el sitio.
+exclude:
+  - src
+  - tools
+  - package.json
+  - package-lock.json
+  - node_modules
