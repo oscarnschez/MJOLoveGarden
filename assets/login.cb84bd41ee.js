@@ -15,6 +15,7 @@
   const ITERATIONS = 600000;
   const SESSION_KEY = "jardin-sesion";
   const appSrc = document.currentScript.dataset.app;
+  const engineSrc = document.currentScript.dataset.engine;
 
   const enc = new TextEncoder();
   const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -38,7 +39,8 @@
     return toB64(bits) === user.hash ? key : null;
   }
 
-  // Carga la app y se resuelve cuando ya pintó su primera pantalla.
+  // Carga el motor 3D y la app (se descargan en paralelo y se ejecutan en orden) y se
+  // resuelve cuando la app ya pintó su primera pantalla. Si el motor 3D no carga, la app usa el 2D.
   function startApp() {
     return new Promise((resolve) => {
       const host = document.getElementById("app");
@@ -47,11 +49,17 @@
         host.childElementCount || performance.now() - t0 > 4000
           ? requestAnimationFrame(() => requestAnimationFrame(resolve))
           : setTimeout(ready, 50);
-      const s = document.createElement("script");
+      const load = (src) => {
+        const s = document.createElement("script");
+        s.async = false;
+        s.src = src;
+        document.body.append(s);
+        return s;
+      };
+      if (engineSrc) load(engineSrc);
+      const s = load(appSrc);
       s.onload = ready;
       s.onerror = resolve;
-      s.src = appSrc;
-      document.body.append(s);
     });
   }
 
