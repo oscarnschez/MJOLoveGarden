@@ -12,7 +12,7 @@ root = pathlib.Path(__file__).resolve().parent.parent
 assets = root / "assets"
 index, sw = root / "index.html", root / "sw.js"
 html, worker = index.read_text(encoding="utf-8"), sw.read_text(encoding="utf-8")
-pattern = re.compile(r"^(app|login|logo|garden3d|grass|blade|soil)(?:\.[0-9a-f]{10})?\.(js|css|bin|webp)$")
+pattern = re.compile(r"^(app|login|logo|garden3d|ambient|grass|blade|soil)(?:\.[0-9a-f]{10})?\.(js|css|bin|webp)$")
 
 names, blob = [], b""
 for f in sorted(assets.iterdir()):

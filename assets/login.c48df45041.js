@@ -16,6 +16,10 @@
   const SESSION_KEY = "jardin-sesion";
   const appSrc = document.currentScript.dataset.app;
   const engineSrc = document.currentScript.dataset.engine;
+  const soundSrc = document.currentScript.dataset.sound;
+  const AUTHOR = "Oscar A. Sánchez";
+  const version = document.documentElement.dataset.version;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const enc = new TextEncoder();
   const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -39,7 +43,7 @@
     return toB64(bits) === user.hash ? key : null;
   }
 
-  // Carga el motor 3D y la app (se descargan en paralelo y se ejecutan en orden) y se
+  // Carga el sonido, el motor 3D y la app (se descargan en paralelo y se ejecutan en orden) y se
   // resuelve cuando la app ya pintó su primera pantalla. Si el motor 3D no carga, la app usa el 2D.
   function startApp() {
     return new Promise((resolve) => {
@@ -56,6 +60,7 @@
         document.body.append(s);
         return s;
       };
+      if (soundSrc) load(soundSrc);
       if (engineSrc) load(engineSrc);
       const s = load(appSrc);
       s.onload = ready;
@@ -227,8 +232,7 @@
       submit
     );
     const form = el("form", { class: "login-card", novalidate: "" }, logo, body);
-    const version = document.documentElement.dataset.version;
-    const foot = el("p", { class: "login-foot" }, `${version ? `v${version} · ` : ""}© 2026 Jardín Eterno`);
+    const foot = el("p", { class: "login-foot" }, `${version ? `v${version} · ` : ""}© 2026 ${AUTHOR}`);
     const screen = el("section", { class: "login", "aria-label": "Iniciar sesión" }, form, foot);
 
     const fail = (message, input) => {
@@ -258,10 +262,75 @@
     });
 
     document.body.prepend(screen);
-    user.input.focus();
+    return { screen, logo, focus: () => user.input.focus() };
+  }
+
+  // Pantalla de apertura: logo, autor, versión y copyright. Se ve cada vez que se abre la app,
+  // mientras carga lo demás; tocarla la acorta.
+  function openSplash() {
+    const splash = document.getElementById("splash");
+    if (!splash) return null;
+    const logo = el("div", { class: "splash-logo" });
+    if (window.jardinLogo) logo.innerHTML = window.jardinLogo;
+    else logo.textContent = "Jardín Eterno";
+    splash.append(
+      el("div", { class: "splash-center" }, logo, el("p", { class: "splash-author" }, el("span", {}, "Creado por"), ` ${AUTHOR}`)),
+      el("p", { class: "splash-foot" }, `${version ? `Versión ${version} · ` : ""}© 2026 ${AUTHOR}`),
+    );
+    splash.setAttribute("aria-label", `Jardín Eterno, creado por ${AUTHOR}`);
+    const svg = logo.querySelector("svg");
+    for (const stem of svg?.querySelectorAll(".stem") ?? []) stem.style.setProperty("--len", `${stem.getTotalLength() + 2}px`);
+    requestAnimationFrame(() => splash.classList.add("is-playing"));
+    let skip;
+    const skipped = new Promise((done) => (skip = done));
+    splash.addEventListener("pointerdown", () => skip(), { once: true });
+    const shown = Promise.race([wait(reduced ? 1200 : 2600), skipped]);
+    return { splash, logo, svg, shown };
+  }
+
+  // La apertura se convierte en el inicio de sesión: el logo sube a su lugar y aparece el formulario.
+  async function splashToLogin(sp, login) {
+    const a = sp.logo.getBoundingClientRect(), b = login.logo.getBoundingClientRect();
+    sp.splash.classList.add("is-leaving");
+    login.screen.classList.add("is-arriving");
+    if (!reduced && a.width && b.width) {
+      const k = b.width / a.width;
+      sp.logo.style.transform = `translate(${b.left + b.width / 2 - (a.left + a.width / 2)}px, ${b.top + b.height / 2 - (a.top + a.height / 2)}px) scale(${k})`;
+      await wait(700);
+    }
+    login.screen.classList.remove("is-waiting", "is-arriving");
+    sp.splash.remove();
+    login.focus();
+  }
+
+  // Con la sesión guardada, el jardín se abre desde las flores del logo.
+  async function splashToGarden(sp, appReady) {
+    await appReady;
+    if (reduced || !sp.svg) {
+      sp.splash.classList.add("is-gone");
+      await wait(350);
+      sp.splash.remove();
+      return;
+    }
+    const buds = [...sp.svg.querySelectorAll(".bud")].map((n) => n.getBoundingClientRect());
+    const cx = buds.reduce((sum, n) => sum + n.left + n.width / 2, 0) / buds.length;
+    const cy = buds.reduce((sum, n) => sum + n.top + n.height / 2, 0) / buds.length;
+    sp.splash.classList.add("is-revealing");
+    sp.logo.style.transform = "scale(1.3)";
+    await reveal(sp.splash, cx, cy, 950);
+    sp.splash.remove();
   }
 
   const session = readSession();
-  if (session && Object.hasOwn(USERS, session)) startApp();
-  else showLogin();
+  const sp = openSplash();
+  if (session && Object.hasOwn(USERS, session)) {
+    const ready = startApp();
+    if (sp) sp.shown.then(() => splashToGarden(sp, ready));
+  } else {
+    const login = showLogin();
+    if (sp) {
+      login.screen.classList.add("is-waiting");
+      sp.shown.then(() => splashToLogin(sp, login));
+    } else login.focus();
+  }
 })();
