@@ -1,0 +1,37 @@
+.login{--paper:#16211c;--paper-3:#1f2c25;--ink:#faf3dd;--ink-soft:#cfd3bf;--leaf:#a9c9a0;--rule:#3d5045;--danger:#f2a99a;color-scheme:dark;position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;overflow-y:auto;padding:calc(var(--safe-t) + 28px) max(24px,var(--safe-r)) calc(var(--safe-b) + 16px) max(24px,var(--safe-l));color:var(--ink);background:radial-gradient(120% 75% at 50% 22%,#2c4537 0%,#1b2a22 55%,#121b16 100%);transition:opacity .35s ease}
+.login-card{width:100%;max-width:380px;margin:auto 0;display:flex;flex-direction:column;gap:26px}
+.login-logo{margin:0;line-height:0;font-family:var(--font-display);font-weight:400;font-size:44px;text-align:center;transition:transform .78s cubic-bezier(.65,0,.35,1),opacity .8s ease}
+.login-logo .logo{display:block;width:100%;height:auto;overflow:visible}
+.logo-text{fill:#faf3dd}
+.logo .stem{fill:none;stroke:#7fa14c;stroke-width:3.6;stroke-linecap:round}
+.logo .leaf,.logo .sepal{fill:#7fa14c}
+.logo .petal{fill:#ff66c4;stroke:#ff66c4;stroke-width:1.2;stroke-linejoin:round}
+.login-body{display:flex;flex-direction:column;gap:16px;transition:opacity .35s ease,transform .35s ease}
+.login .tagline{margin:0 0 4px;text-align:center;font-family:var(--font-display);font-style:italic;font-size:19px;line-height:1.4;color:var(--ink-soft);font-variation-settings:"opsz" 20,"SOFT" 100}
+.login-error{margin:0;font-size:14px;color:var(--danger);font-weight:560}
+.login .btn{min-height:52px;font-size:17px;border-radius:16px}
+.login .btn.primary{background:var(--ink);border-color:var(--ink);color:#1b2a22}
+.login-foot{margin:28px 0 0;font-size:12px;letter-spacing:.03em;color:var(--ink-soft);opacity:.7;text-align:center;font-variant-numeric:tabular-nums;transition:opacity .35s ease}
+
+.login.is-leaving .login-body{opacity:0;transform:translateY(14px)}
+.login.is-leaving .login-foot{opacity:0}
+.login.is-leaving .logo-flowers{animation:je-fade .25s ease forwards}
+.login.is-growing .logo-flowers{animation:none;opacity:1}
+.login.is-growing .flower-0{--d:0ms;--dur:1150ms}
+.login.is-growing .flower-1{--d:220ms;--dur:900ms}
+.login.is-growing .stem{stroke-dasharray:var(--len);animation:je-draw var(--dur) cubic-bezier(.45,0,.25,1) var(--d) both}
+.login.is-growing .leaf{animation:je-unfurl .6s cubic-bezier(.2,.9,.3,1.25) calc(var(--d) + var(--dur) * var(--at) - 120ms) both}
+.login.is-growing .bud{animation:je-bloom .8s cubic-bezier(.2,.8,.3,1) calc(var(--d) + var(--dur) - 90ms) both}
+.login.is-revealing .login-logo{opacity:0}
+.login.is-gone,.je-petals.is-gone{opacity:0}
+
+@keyframes je-fade{to{opacity:0}}
+@keyframes je-draw{from{stroke-dashoffset:var(--len)}to{stroke-dashoffset:0}}
+@keyframes je-unfurl{from{transform:rotate(var(--fold)) scale(0);opacity:0}35%{opacity:1}to{transform:none;opacity:1}}
+@keyframes je-bloom{0%{transform:scale(0) rotate(-18deg);opacity:0}25%{opacity:1}65%{transform:scale(1.12) rotate(3deg)}to{transform:none;opacity:1}}
+
+.je-petals{position:fixed;inset:0;z-index:61;pointer-events:none;overflow:hidden;transition:opacity .35s ease}
+.je-petal{position:absolute;left:0;top:0;width:13px;height:9px;margin:-4px 0 0 -6px;border-radius:80% 0 80% 0;opacity:0;animation:je-petal var(--t) cubic-bezier(.15,.6,.35,1) var(--d) forwards}
+.je-glow{position:absolute;left:0;top:0;width:240px;height:240px;margin:-120px 0 0 -120px;border-radius:50%;background:radial-gradient(circle,rgba(255,102,196,.5),rgba(255,102,196,0) 65%);opacity:0;animation:je-glow 1.4s ease-out forwards}
+@keyframes je-petal{0%{transform:translate(var(--x),var(--y)) scale(.3);opacity:0}15%{opacity:1}60%{transform:translate(calc(var(--x) + var(--tx) * .75),calc(var(--y) + var(--ty) * .75)) rotate(calc(var(--r) * .6)) scale(var(--s));opacity:1}to{transform:translate(calc(var(--x) + var(--tx)),calc(var(--y) + var(--ty) + 60px)) rotate(var(--r)) scale(var(--s));opacity:0}}
+@keyframes je-glow{0%{transform:translate(var(--x),var(--y)) scale(.3);opacity:0}30%{opacity:1}to{transform:translate(var(--x),var(--y)) scale(1.6);opacity:0}}
