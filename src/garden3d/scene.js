@@ -5,7 +5,7 @@ import { bindAttribs, buffer, createProgram, dataTexture, loadImage, texture } f
 import { BED_H, blobTexture, buildGround, buildPaths, clearingTexture } from "./ground.js";
 import { Grass, loadGrass } from "./grass.js";
 import { clamp, hashString, hexToRgb, lerp, rng } from "./math.js";
-import { buildMilestoneRing, buildPlant } from "./plants.js";
+import { buildMilestoneRing, buildPlant, buildTree } from "./plants.js";
 import * as SH from "./shaders.js";
 
 const PLANT_LAYOUT = [
@@ -26,6 +26,35 @@ const INST_LAYOUT = [
 ];
 const SAND = hexToRgb("#e6dcc4"), SAND_EDGE = hexToRgb("#c9bb98"), MEADOW = hexToRgb("#b8c99f");
 const rgb255 = (c) => [c[0] / 255, c[1] / 255, c[2] / 255];
+
+// Árboles de nacimiento: roble para la primera persona y cerezo en flor para la segunda.
+const TREES = [
+  { angle: 222, bar: "#6f9a5b", palette: { light: "#9fc47a", base: "#689652", deep: "#3c663a", center: "#6b4f3a" } },
+  { angle: 318, bar: "#e58fb8", palette: { light: "#fcd9e7", base: "#f0a8c5", deep: "#d4799f", center: "#5a3e36" } },
+];
+
+// Edad entre dos fechas AAAA-MM-DD (hoy, en la zona horaria del jardín) y avance hacia el siguiente cumpleaños.
+export function treeAge(birth, today) {
+  const re = /^(\d{4})-(\d{2})-(\d{2})$/, b = re.exec(birth ?? ""), t = re.exec(today ?? "");
+  if (!b || !t || birth > today) return null;
+  const [by, bm, bd] = b.slice(1).map(Number), ty = +t[1];
+  const day = (y, m, d) => Date.UTC(y, m - 1, d) / 864e5;
+  const leap = (y) => y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  // Quien nació un 29 de febrero celebra el 28 en los años que no son bisiestos.
+  const bday = (y) => day(y, bm, bm === 2 && bd === 29 && !leap(y) ? 28 : bd);
+  const now = day(ty, +t[2], +t[3]);
+  const lastY = bday(ty) <= now ? ty : ty - 1, last = bday(lastY), next = bday(lastY + 1);
+  const years = lastY - by, progress = (now - last) / (next - last);
+  return {
+    years,
+    months: Math.floor((now - day(by, bm, bd)) / 30.4375),
+    progress,
+    age: years + progress,
+    birthday: now === last && years > 0,
+    daysToNext: next - now,
+    nextDate: new Date(next * 864e5).toISOString().slice(0, 10),
+  };
+}
 
 export class Scene3D {
   constructor(host, events, deps) {
@@ -72,6 +101,14 @@ export class Scene3D {
     this.t0 = performance.now();
     this.groups = new Map();
     this.byDay = new Map();
+    this.treeGroups = new Map();
+    this.treeInput = [];
+    this.trees = [];
+    this.treeFocus = null;
+    this.treeShadow = new Float32Array(0);
+    this.plantShadow = new Float32Array(0);
+    this.bounds = null;
+    this.entered = false;
     this.loop = (now) => this.tick(now);
 
     this.canvas = document.createElement("canvas");
@@ -221,12 +258,14 @@ export class Scene3D {
   restoreGL() {
     this.groups = new Map();
     this.byDay.clear();
+    this.treeGroups = new Map();
     this.grass = null;
     this.grassReady = false;
     this.initGL();
     if (this.loaded) this.uploadAssets();
     if (this.world) {
       this.setupWorld(this.world);
+      this.placeTrees(false);
       this.buildInstances();
     }
     this.invalidate();
@@ -308,7 +347,8 @@ export class Scene3D {
     const first = !this.world;
     if (this.world !== world || this.worldVersion !== world.version) this.setupWorld(world);
     this.emptyBed = world.flowers.length === 0;
-    this.camera.setBounds(world.bounds);
+    this.placeTrees(!first);
+    this.camera.setBounds(this.bounds);
     if (first || !keepView) this.camera.fit(this.defaultRect(), 0, 2.2);
     if (this.selected) this.selected = world.flowerByDay(this.selected.dayNumber) ?? null;
     this.buildInstances();
@@ -343,7 +383,7 @@ export class Scene3D {
 
   defaultRect() {
     const w = this.world;
-    if (w.flowers.length <= 60) return w.bounds;
+    if (w.flowers.length <= 60) return this.bounds ?? w.bounds;
     const last = w.flowers[w.flowers.length - 1], c = { x: last.position.x * 0.72, y: last.position.y * 0.72 };
     return { x0: c.x - 170, y0: c.y - 150, x1: c.x + 170, y1: c.y + 110 };
   }
@@ -426,7 +466,7 @@ export class Scene3D {
 
   showAll(dur = 900) {
     if (!this.world) return;
-    this.camera.fit(this.world.bounds, this.motion ? dur : 0, 2.2);
+    this.camera.fit(this.bounds ?? this.world.bounds, this.motion ? dur : 0, 2.2);
     this.invalidate();
   }
 
@@ -596,8 +636,159 @@ export class Scene3D {
       const r = (f.growthStage <= 1 ? 7 : f.growthStage === 2 ? 10 : 9 + this.deps.species[f.speciesId].headRadius * 0.6) * f.scale;
       sh.set([f.position.x, f.position.y / this.H, r, 0, 0.1, 0.13, 0.07, 0.3], i * 8);
     });
+    this.plantShadow = sh;
+    this.mergeShadows();
+  }
+
+  mergeShadows() {
+    const a = this.plantShadow, b = this.treeShadow, sh = new Float32Array(a.length + b.length);
+    sh.set(a);
+    sh.set(b, a.length);
     this.shadowData = sh;
     this.shadowDirty = true;
+  }
+
+  // --- Árboles de nacimiento ---
+
+  // list: [{ name, birth, today, kind }]. El árbol crece con la edad y suma ramas al madurar.
+  setTrees(list) {
+    this.treeInput = Array.isArray(list) ? list : [];
+    if (!this.world) return;
+    this.placeTrees(true);
+    this.camera.setBounds(this.bounds);
+    this.invalidate();
+  }
+
+  setEntered(on) {
+    this.entered = !!on;
+    this.invalidate();
+  }
+
+  placeTrees(animate) {
+    const w = this.world;
+    if (!w) return;
+    const before = new Set(this.trees.map((t) => t.kind)), now = performance.now();
+    this.trees = [];
+    for (const input of this.treeInput) {
+      const spec = TREES[input.kind], a = spec && treeAge(input.birth, input.today);
+      if (!a) continue;
+      const m = Math.round(Math.min(1, a.age / 25) * 4) / 4, key = `tree|${input.kind}|${m}`;
+      const g = this.treeGeometry(key, input.kind, m);
+      const h = 55 + 150 * (1 - Math.exp(-a.age / 18)), s = h / g.geo.height;
+      const th = (spec.angle * Math.PI) / 180, R = w.blobRadiusAt(th) + 16 + h * 0.22;
+      const yaw = (rng(hashString(`tree${input.kind}`))() - 0.5) * 1.6;
+      this.trees.push({ ...input, ...a, key, m, h, s, yaw, x: Math.cos(th) * R, z: Math.sin(th) * R, geo: g.geo });
+      if (animate && this.motion && !before.has(input.kind)) this.appear.set(`tree${input.kind}`, { t0: now + 350, dur: 1800 });
+    }
+    this.fillTrees();
+    // Sombra bajo cada copa.
+    const sh = new Float32Array(this.trees.length * 8);
+    this.trees.forEach((t, i) => sh.set([t.x, t.z, t.geo.radius * t.s * 0.75, 0, 0.1, 0.13, 0.07, 0.34], i * 8));
+    this.treeShadow = sh;
+    this.mergeShadows();
+    // Límites del jardín con los árboles (el alto cuenta como profundidad, como en el 2D).
+    let { x0, y0, x1, y1 } = w.bounds;
+    for (const t of this.trees) {
+      const r = t.geo.radius * t.s, y = t.z * this.H;
+      x0 = Math.min(x0, t.x - r);
+      x1 = Math.max(x1, t.x + r);
+      y0 = Math.min(y0, y - t.h * 0.6);
+      y1 = Math.max(y1, y + 24);
+    }
+    this.bounds = { x0, y0, x1, y1 };
+  }
+
+  treeGeometry(key, kind, m) {
+    let g = this.treeGroups.get(key);
+    if (g) return g;
+    const gl = this.gl, prog = this.progs.plant, geo = buildTree(kind, m);
+    g = { geo, inst: gl.createBuffer(), data: new Float32Array(0), list: [], dirty: true };
+    g.vao = gl.createVertexArray();
+    gl.bindVertexArray(g.vao);
+    bindAttribs(gl, prog, buffer(gl, geo.vertices), PLANT_LAYOUT, 11);
+    bindAttribs(gl, prog, g.inst, INST_LAYOUT, INST, 1);
+    buffer(gl, geo.indices, gl.ELEMENT_ARRAY_BUFFER);
+    gl.bindVertexArray(null);
+    g.count = geo.indices.length;
+    g.type = geo.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+    this.treeGroups.set(key, g);
+    return g;
+  }
+
+  fillTrees() {
+    for (const g of this.treeGroups.values()) g.list = [];
+    for (const t of this.trees) this.treeGroups.get(t.key).list.push(t);
+    for (const g of this.treeGroups.values()) {
+      const d = (g.data = new Float32Array(g.list.length * INST));
+      g.list.forEach((t, i) => {
+        const o = i * INST, a = this.appear.get(`tree${t.kind}`), pal = TREES[t.kind].palette;
+        d.set([t.x, t.z, t.yaw, t.s, 0, t.kind * 2.1, -1e5, a ? (a.t0 - this.t0) / 1000 : 0, a ? a.dur / 1000 : 0], o);
+        d.set(hexToRgb(pal.light), o + 12);
+        d.set(hexToRgb(pal.base), o + 15);
+        d.set(hexToRgb(pal.deep), o + 18);
+        d.set(hexToRgb(pal.center), o + 21);
+      });
+      g.dirty = true;
+    }
+  }
+
+  // Copa del árbol en el mundo (para tocarlo).
+  treeCrown(t) {
+    const [hx, hy, hz] = t.geo.head, c = Math.cos(t.yaw), s = Math.sin(t.yaw);
+    return [t.x + (hx * c + hz * s) * t.s, hy * t.s, t.z + (-hx * s + hz * c) * t.s];
+  }
+
+  hitTree(x, y) {
+    for (const t of this.trees) {
+      const base = this.camera.project(t.x, 0, t.z);
+      if (base.w <= 0) continue;
+      const lr = t.labelRect;
+      if (lr && x >= lr[0] && y >= lr[1] && x <= lr[0] + lr[2] && y <= lr[1] + lr[3]) return t;
+      const cw = this.treeCrown(t), head = this.camera.project(cw[0], cw[1], cw[2]);
+      const side = this.camera.project(cw[0] + t.geo.radius * t.s * 0.7, cw[1], cw[2]);
+      const r = Math.max(24, Math.hypot(side.x - head.x, side.y - head.y));
+      const vx = head.x - base.x, vy = head.y - base.y;
+      const k = clamp(((x - base.x) * vx + (y - base.y) * vy) / Math.max(1, vx * vx + vy * vy), 0, 1);
+      if (Math.hypot(x - head.x, y - head.y) < r || Math.hypot(x - (base.x + vx * k), y - (base.y + vy * k)) < 14) return t;
+    }
+    return null;
+  }
+
+  treeInfo(t) {
+    const { name, birth, kind, years, months, birthday, daysToNext, nextDate, progress } = t;
+    return { name, birth, kind, years, months, birthday, daysToNext, nextDate, progress };
+  }
+
+  // Nombre, edad y avance del año bajo cada árbol (solo con el jardín abierto).
+  drawTreeLabels(g, now) {
+    const cam = this.camera;
+    g.font = '600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    for (const t of this.trees) {
+      t.labelRect = null;
+      const a = this.appear.get(`tree${t.kind}`);
+      if (a && now < a.t0 + a.dur) continue;
+      const p = cam.project(t.x, 0, t.z);
+      if (p.w <= 0 || p.x < -80 || p.y < -40 || p.x > this.width + 80 || p.y > this.height + 40) continue;
+      const age = t.years > 0 ? `${t.years} ${t.years === 1 ? "año" : "años"}` : `${t.months} ${t.months === 1 ? "mes" : "meses"}`;
+      const text = t.birthday ? `${t.name} · ¡${t.years} hoy!` : `${t.name} · ${age}`;
+      const w = Math.max(70, g.measureText(text).width + 22), h = 28, x = p.x - w / 2, y = p.y + 8;
+      g.beginPath();
+      g.roundRect ? g.roundRect(x, y, w, h, 10) : g.rect(x, y, w, h);
+      g.fillStyle = "rgba(28,40,33,.28)";
+      g.fill();
+      g.beginPath();
+      g.roundRect ? g.roundRect(x + 1, y + 1, w - 2, h - 2, 9) : g.rect(x + 1, y + 1, w - 2, h - 2);
+      g.fillStyle = t.birthday ? "rgba(253,228,239,.96)" : "rgba(250,243,221,.94)";
+      g.fill();
+      g.fillStyle = "#2f4a3a";
+      g.fillText(text, p.x, y + 11);
+      const bw = w - 20, bx = x + 10, by = y + 19;
+      this.pill(g, bx, by, bw, 4, "rgba(47,74,58,.16)");
+      this.pill(g, bx, by, Math.max(4, bw * (t.birthday ? 1 : t.progress)), 4, TREES[t.kind].bar);
+      t.labelRect = [x, y, w, h];
+    }
   }
 
   fillInstance(g, i, f) {
@@ -659,8 +850,13 @@ export class Scene3D {
   handleTap(x, y) {
     if (this.mode === "water") return;
     const f = this.hitTest(x, y);
-    if (f) this.select(f);
-    else if (this.selected) this.select(null);
+    if (f) return this.select(f);
+    if (this.selected) this.select(null);
+    const t = this.hitTree(x, y);
+    if (!t) return;
+    this.treeFocus = { kind: t.kind, until: performance.now() + 2600 };
+    this.events.onTree?.(this.treeInfo(t));
+    this.invalidate();
   }
 
   hitTest(x, y, minR = 22) {
@@ -769,6 +965,7 @@ export class Scene3D {
     for (const [d, w] of this.wetUntil) now > w ? this.wetUntil.delete(d) : (busy = true);
     for (const [d, a] of this.appear) now > a.t0 + a.dur ? this.appear.delete(d) : (busy = true);
     for (const [d, h] of this.highlights) now > h ? this.highlights.delete(d) : (busy = true);
+    if (this.treeFocus) now > this.treeFocus.until ? (this.treeFocus = null) : (busy = true);
     if (this.selected) busy = busy || this.motion;
     this.life.update(dt, this.camera, { motion: this.motion, reduced: this.reduceEffects || this.quality === 0, night: this.look.night });
     if ((this.motion && !this.emptyBed) || this.life.busy) busy = true;
@@ -937,6 +1134,21 @@ export class Scene3D {
       gl.bindVertexArray(m.vao);
       gl.drawElementsInstanced(gl.TRIANGLES, m.count, m.type, 0, g.flowers.length);
     }
+    if (this.trees.length) {
+      gl.uniform1f(P.plant.uniforms.u_bedH, 0);
+      gl.uniform1f(P.plant.uniforms.u_motion, this.motion ? 0.3 : 0);
+      for (const g of this.treeGroups.values()) {
+        if (!g.list.length) continue;
+        if (g.dirty) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, g.inst);
+          gl.bufferData(gl.ARRAY_BUFFER, g.data, gl.DYNAMIC_DRAW);
+          g.dirty = false;
+        }
+        gl.uniform1f(P.plant.uniforms.u_height, g.geo.height);
+        gl.bindVertexArray(g.vao);
+        gl.drawElementsInstanced(gl.TRIANGLES, g.count, g.type, 0, g.list.length);
+      }
+    }
     gl.bindVertexArray(null);
   }
 
@@ -970,6 +1182,11 @@ export class Scene3D {
         const f = this.world.flowerByDay(d);
         if (f) push(f, 2, hc, (0.55 + pulse * 0.35) * clamp((until - now) / 800, 0, 1));
       }
+    }
+    const tf = this.treeFocus, tree = tf && this.trees.find((t) => t.kind === tf.kind);
+    if (tree) {
+      const c = hexToRgb(TREES[tree.kind].bar);
+      out.push(tree.x, tree.z, tree.geo.radius * tree.s * 0.8, 2, c[0], c[1], c[2], (0.55 + pulse * 0.35) * clamp((tf.until - now) / 800, 0, 1));
     }
     return new Float32Array(out);
   }
@@ -1019,7 +1236,8 @@ export class Scene3D {
       }
     }
     // Barras de crecimiento de las plantas que aún no maduran.
-    if (cam.zoom >= 0.9) {
+    if (this.entered) this.drawTreeLabels(g, now);
+    if (this.entered && cam.zoom >= 0.9) {
       const today = this.world.flowers.length;
       for (let day = Math.max(1, today - 6); day <= today; day++) {
         const f = this.world.flowerByDay(day);
@@ -1068,6 +1286,7 @@ export class Scene3D {
     this.overlay.remove();
     const fb = new this.deps.Scene2D(this.host, this.events);
     this.fb = fb;
+    fb.setEntered?.(this.entered);
     fb.setInsets(state.insets.top, state.insets.bottom, state.insets.left, state.insets.right);
     fb.setMotion(state.motion, state.reduce);
     const name = Object.keys(this.deps.looks).find((k) => this.deps.looks[k] === state.look);
