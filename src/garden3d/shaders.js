@@ -212,9 +212,11 @@ void main() {
 }`,
   fs: `${HEAD}${LOOK}
 in vec3 v_col; in vec3 v_nrm; in vec3 v_world; in float v_soft;
+uniform float u_noFlip;
 out vec4 o;
 void main() {
-  vec3 n = normalize(v_nrm) * (gl_FrontFacing ? 1.0 : -1.0);
+  // Las hojas de los árboles usan la normal de la copa por ambos lados.
+  vec3 n = normalize(v_nrm) * (gl_FrontFacing || (u_noFlip > 0.5 && v_soft > 0.55) ? 1.0 : -1.0);
   vec3 c = shade(v_col, n, 0.45 + v_soft * 0.35, 0.2 + v_soft * 0.45);
   o = vec4(grade(fog(c, v_world)), 1.0);
 }`,

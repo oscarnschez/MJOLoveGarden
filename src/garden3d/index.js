@@ -1,6 +1,7 @@
 // Punto de entrada del jardín 3D. La app llama a Jardin3D.create(...) si el navegador
 // tiene WebGL2; si no, o si algo falla, sigue usando el jardín 2D.
 import { Scene3D } from "./scene.js";
+import { tree2D } from "./trees.js";
 
 function supported() {
   try {
@@ -18,6 +19,8 @@ function assets() {
 
 window.Jardin3D = {
   supported,
+  // Árboles ilustrados para el jardín 2D (la misma estructura que el modelo 3D).
+  tree2D,
   create(host, events, deps) {
     try {
       const scene = new Scene3D(host, events, { ...deps, assets: assets() });
