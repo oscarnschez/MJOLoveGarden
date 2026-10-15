@@ -5,7 +5,8 @@ import { bindAttribs, buffer, createProgram, dataTexture, loadImage, texture } f
 import { BED_H, blobTexture, buildGround, buildPaths, clearingTexture } from "./ground.js";
 import { Grass, loadGrass } from "./grass.js";
 import { clamp, hashString, hexToRgb, lerp, rng } from "./math.js";
-import { buildMilestoneRing, buildPlant, buildTree } from "./plants.js";
+import { buildMilestoneRing, buildPlant } from "./plants.js";
+import { buildTree } from "./trees.js";
 import * as SH from "./shaders.js";
 
 const PLANT_LAYOUT = [
@@ -98,6 +99,7 @@ export class Scene3D {
     this.fb = null;
     this.errors = 0;
     this.worldVersion = -1;
+    this.overlayDirty = false;
     this.t0 = performance.now();
     this.groups = new Map();
     this.byDay = new Map();
@@ -170,7 +172,7 @@ export class Scene3D {
       },
       waterMove: (x, y) => {
         this.water.move(x, y);
-        this.invalidate();
+        this.invalidateOverlay();
       },
       waterEnd: () => {
         this.water.end(performance.now());
@@ -181,7 +183,7 @@ export class Scene3D {
         this.hoverInside = inside && this.mode === "water";
         this.water.setHover(this.hoverInside, x, y);
         this.canvas.style.cursor = this.mode === "water" ? (inside ? "none" : "") : "grab";
-        if (this.mode === "water") this.invalidate();
+        if (this.mode === "water") this.invalidateOverlay();
       },
     });
     this.resize();
@@ -431,6 +433,17 @@ export class Scene3D {
   invalidate() {
     this.dirty = true;
     this.bump();
+    this.requestFrame();
+  }
+
+  // Solo cambió la capa 2D (gotas, regadera): la vista 3D puede seguir a su ritmo.
+  invalidateOverlay() {
+    this.overlayDirty = true;
+    this.requestFrame();
+  }
+
+  // Un solo cuadro pendiente a la vez: pedir otro mientras ya hay uno duplicaría el bucle de dibujo.
+  requestFrame() {
     if (this.running && !this.raf) this.raf = requestAnimationFrame(this.loop);
   }
 
@@ -438,7 +451,7 @@ export class Scene3D {
     if (this.running || this.lost) return;
     this.running = true;
     this.lastT = performance.now();
-    this.raf = requestAnimationFrame(this.loop);
+    this.requestFrame();
   }
 
   stop() {
@@ -675,7 +688,8 @@ export class Scene3D {
       const m = Math.round(Math.min(1, a.age / 25) * 4) / 4, key = `tree|${input.kind}|${m}`;
       const g = this.treeGeometry(key, input.kind, m);
       const h = 55 + 150 * (1 - Math.exp(-a.age / 18)), s = h / g.geo.height;
-      const th = (spec.angle * Math.PI) / 180, R = w.blobRadiusAt(th) + 16 + h * 0.22;
+      // Detrás del arriate, lo bastante lejos para que la copa no tape las flores.
+      const th = (spec.angle * Math.PI) / 180, R = w.blobRadiusAt(th) + 12 + g.geo.radius * s * 0.7;
       const yaw = (rng(hashString(`tree${input.kind}`))() - 0.5) * 1.6;
       this.trees.push({ ...input, ...a, key, m, h, s, yaw, x: Math.cos(th) * R, z: Math.sin(th) * R, geo: g.geo });
       if (animate && this.motion && !before.has(input.kind)) this.appear.set(`tree${input.kind}`, { t0: now + 350, dur: 1800 });
@@ -911,7 +925,8 @@ export class Scene3D {
       this.wetUntil.set(f.dayNumber, now + 7000);
     }
     if (fresh.length) this.events.onWatered(fresh);
-    this.invalidate();
+    this.dirty = true;
+    this.requestFrame();
   }
 
   react(day) {
@@ -928,20 +943,28 @@ export class Scene3D {
     this.lastT = now;
     const animating = this.update(now, dt);
     // En reposo con viento se dibuja a ~30 cuadros por segundo, y a ~15 tras 20 s sin tocar nada.
+    // Al regar, la vista 3D sigue ese ritmo y solo las gotas y la regadera (capa 2D) van a ritmo completo.
     const idle = now - this.lastActive, gap = idle > 20000 ? 66 : 30;
-    if (animating && !this.dirty && idle > 2500 && !this.camera.isFlying && !this.water.busy && !this.appear.size && !this.reactions.size && now - this.lastRender < gap) {
-      this.raf = requestAnimationFrame(this.loop);
+    const effects = (this.water.animating ?? this.water.busy) || this.overlayDirty;
+    if (animating && !this.dirty && idle > 2500 && !this.camera.isFlying && !this.appear.size && (!this.reactions.size || this.mode === "water") && now - this.lastRender < gap) {
+      if (effects) {
+        this.overlayDirty = false;
+        this.renderOverlay(now);
+      }
+      this.requestFrame();
       return;
     }
     this.lastRender = now;
-    const was = this.dirty;
+    const was = this.dirty || this.overlayDirty;
     this.dirty = false;
+    this.overlayDirty = false;
     if (was || animating) {
       this.renderFrame(now);
       if (this.continuous) this.adapt(dt);
       this.continuous = animating;
     } else this.continuous = false;
-    if (animating || this.dirty) this.raf = requestAnimationFrame(this.loop);
+    // Algo dentro de este cuadro (como regar una flor) pudo pedir ya el siguiente.
+    if (animating || this.dirty || this.overlayDirty) this.requestFrame();
   }
 
   update(now, dt) {
@@ -988,6 +1011,14 @@ export class Scene3D {
       this.quality++;
       this.lastQualityChange = now;
       this.resize();
+    }
+  }
+
+  renderOverlay(now) {
+    try {
+      this.drawOverlay(now);
+    } catch (err) {
+      console.warn("jardín 3D: capa omitida", err);
     }
   }
 
@@ -1119,6 +1150,7 @@ export class Scene3D {
 
     this.common(P.plant, light);
     gl.uniform1f(P.plant.uniforms.u_motion, this.motion ? 1 : 0);
+    gl.uniform1f(P.plant.uniforms.u_noFlip, 0);
     // De lejos, plantas livianas (con margen para que no parpadee al cambiar).
     const z = this.camera.zoom;
     this.liteMode = this.liteMode ? z < 0.95 : z < 0.8;
@@ -1137,6 +1169,7 @@ export class Scene3D {
     if (this.trees.length) {
       gl.uniform1f(P.plant.uniforms.u_bedH, 0);
       gl.uniform1f(P.plant.uniforms.u_motion, this.motion ? 0.3 : 0);
+      gl.uniform1f(P.plant.uniforms.u_noFlip, 1);
       for (const g of this.treeGroups.values()) {
         if (!g.list.length) continue;
         if (g.dirty) {
