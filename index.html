@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es-MX" data-version="1.4.0">
+<html lang="es-MX" data-version="1.5.0">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -26,9 +26,11 @@
   <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash-1242x2688.png">
   <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/splash-828x1792.png">
   <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/splash-750x1334.png">
-  <link rel="preload" href="fonts/fraunces.woff" as="font" type="font/woff" crossorigin>
   <script type="application/json" id="jardin-assets">{"grass":"assets/grass.84f4620054.bin","blade":"assets/blade.df17f1a177.webp","soil":"assets/soil.6321862f65.webp"}</script>
-  <link rel="stylesheet" href="assets/app.615fb1b312.css">
+  <!-- Se descargan en paralelo con la apertura (las ejecuta login.js cuando toca). -->
+  <link rel="preload" href="assets/app.b7031bf99e.js" as="script" fetchpriority="low">
+  <link rel="preload" href="assets/garden3d.f4787dbe8d.js" as="script" fetchpriority="low">
+  <link rel="stylesheet" href="assets/app.296eeed7cb.css">
   <link rel="stylesheet" href="assets/login.6b131f6ec7.css">
   <noscript><style>.splash{display:none}</style></noscript>
 </head>
@@ -37,6 +39,6 @@
   <main id="app"></main>
   <noscript>Jardín Eterno necesita JavaScript para crecer.</noscript>
   <script src="assets/logo.1c19e7db12.js" defer></script>
-  <script src="assets/login.c48df45041.js" data-sound="assets/ambient.487d09d657.js" data-engine="assets/garden3d.155336d870.js" data-app="assets/app.6dc767a782.js" defer></script>
+  <script src="assets/login.c48df45041.js" data-sound="assets/ambient.487d09d657.js" data-engine="assets/garden3d.f4787dbe8d.js" data-app="assets/app.b7031bf99e.js" defer></script>
 </body>
 </html>
