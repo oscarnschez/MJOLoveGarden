@@ -81,6 +81,7 @@ void main() {
 in vec3 v_world; in vec3 v_nrm; flat in float v_kind;
 uniform sampler2D u_soil; uniform sampler2D u_clear; uniform vec4 u_clearRect;
 uniform vec3 u_paper; uniform vec3 u_meadow; uniform vec3 u_grassColor; uniform float u_grassFar;
+uniform sampler2D u_lawn; uniform float u_lawnMax;
 out vec4 o;
 void main() {
   vec3 c;
@@ -90,6 +91,15 @@ void main() {
     float d = length(v_world.xz) - blobRadius(v_world.xz);
     float grain = hash12(floor(v_world.xz * 0.6));
     c = mix(u_paper, u_meadow, 0.32 + grain * 0.06);
+    // Césped que llega hasta los árboles: tierra con pasto, que se funde con el prado en la orilla.
+    if (u_lawnMax > 0.0) {
+      vec2 lt = texture(u_lawn, vec2(atan(v_world.z, v_world.x) / 6.2831853, 0.5)).rg;
+      float lr = (lt.r + lt.g / 255.0) * u_lawnMax;
+      float inLawn = smoothstep(lr + 8.0, lr - 12.0, length(v_world.xz) + (grain - 0.5) * 6.0);
+      vec3 turf = texture(u_soil, v_world.xz / 96.0).rgb * vec3(0.86, 0.96, 0.74);
+      turf = mix(turf, u_grassColor, max(u_grassFar, 0.3));
+      c = mix(c, turf, inLawn);
+    }
     c *= 1.0 - smoothstep(26.0, 0.0, d) * 0.22;
   } else {
     vec3 soil = texture(u_soil, v_world.xz / 96.0).rgb;

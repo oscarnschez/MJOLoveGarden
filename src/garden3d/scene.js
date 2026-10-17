@@ -263,6 +263,7 @@ export class Scene3D {
     this.treeGroups = new Map();
     this.grass = null;
     this.grassReady = false;
+    this.lawnKey = null;
     this.initGL();
     if (this.loaded) this.uploadAssets();
     if (this.world) {
@@ -290,12 +291,17 @@ export class Scene3D {
     const radii = this.blobRadii, n = radii.length, w = this.world, eng = w.engine;
     const cl = this.clearing, cs = cl.size, [x0, z0, iw, ih] = cl.rect;
     const pathsOn = w.paths.length > 0, phase = eng?.pathPhase ?? 0;
+    const sample = (list) => (th) => {
+      const f = (((th / (Math.PI * 2)) % 1) + 1) % 1 * n - 0.5, i = Math.floor(f), t = f - i;
+      return list[(i + n) % n] * (1 - t) + list[(i + 1) % n] * t;
+    };
+    const lawn = this.lawn;
     this.grass.rebuild({
-      maxRadius: this.blobMax,
-      radius: (th) => {
-        const f = (((th / (Math.PI * 2)) % 1) + 1) % 1 * n - 0.5, i = Math.floor(f), t = f - i;
-        return radii[(i + n) % n] * (1 - t) + radii[(i + 1) % n] * t;
-      },
+      maxRadius: lawn ? Math.max(this.blobMax, lawn.max) : this.blobMax,
+      bedRadius: this.blobMax,
+      radius: sample(radii),
+      lawn: lawn ? sample(lawn.radii) : null,
+      trunks: lawn ? lawn.trunks : [],
       clear: (X, Z) => {
         const u = Math.floor((X - x0) * iw * cs), v = Math.floor((Z - z0) * ih * cs);
         return u < 0 || v < 0 || u >= cs || v >= cs ? 0 : cl.data[(v * cs + u) * 4] / 255;
@@ -695,6 +701,7 @@ export class Scene3D {
       if (animate && this.motion && !before.has(input.kind)) this.appear.set(`tree${input.kind}`, { t0: now + 350, dur: 1800 });
     }
     this.fillTrees();
+    this.updateLawn();
     // Sombra bajo cada copa.
     const sh = new Float32Array(this.trees.length * 8);
     this.trees.forEach((t, i) => sh.set([t.x, t.z, t.geo.radius * t.s * 0.75, 0, 0.1, 0.13, 0.07, 0.34], i * 8));
@@ -710,6 +717,53 @@ export class Scene3D {
       y1 = Math.max(y1, y + 24);
     }
     this.bounds = { x0, y0, x1, y1 };
+  }
+
+  // Césped alrededor del arriate que llega hasta los árboles: una franja angosta en todo el
+  // contorno que se ensancha hacia cada árbol hasta pasar un poco más allá de su tronco.
+  updateLawn() {
+    const radii = this.blobRadii, n = radii?.length ?? 0;
+    let lawn = null;
+    if (n && this.trees.length) {
+      const out = new Float32Array(n), trunks = [];
+      const need = this.trees.map((t) => {
+        const th = Math.atan2(t.z, t.x), d = Math.hypot(t.x, t.z), i = Math.round(((((th / (Math.PI * 2)) % 1) + 1) % 1) * n - 0.5);
+        trunks.push({ x: t.x, z: t.z, r: (1 + 4.6 * t.m) * 1.9 * t.s + 1.5 });
+        return { th, extra: d + Math.max(60, t.geo.radius * t.s * 0.8) - radii[(i + n) % n] };
+      });
+      let max = 0;
+      for (let i = 0; i < n; i++) {
+        const th = ((i + 0.5) / n) * Math.PI * 2;
+        let pad = 22;
+        for (const q of need) {
+          let dth = Math.abs(th - q.th) % (Math.PI * 2);
+          if (dth > Math.PI) dth = Math.PI * 2 - dth;
+          pad = Math.max(pad, 22 + (q.extra - 22) * Math.exp(-((dth / 0.75) ** 2)));
+        }
+        out[i] = radii[i] + pad * (0.94 + 0.12 * Math.sin(th * 5 + 1.3) * Math.sin(th * 3));
+        max = Math.max(max, out[i]);
+      }
+      lawn = { radii: out, max: max * 1.02, trunks };
+    }
+    const key = lawn ? Array.from(lawn.radii.filter((_, i) => i % 32 === 0), (v) => Math.round(v)).join(",") : "";
+    if (key === this.lawnKey) return;
+    this.lawnKey = key;
+    this.lawn = lawn;
+    const gl = this.gl;
+    if (this.tex.lawn && this.tex.lawn !== this.placeholder) gl.deleteTexture(this.tex.lawn);
+    this.tex.lawn = this.placeholder;
+    if (lawn) {
+      const data = new Uint8Array(n * 4);
+      lawn.radii.forEach((r, i) => {
+        const v = (r / lawn.max) * 255, hi = Math.floor(v);
+        data[i * 4] = hi;
+        data[i * 4 + 1] = Math.round((v - hi) * 255);
+        data[i * 4 + 3] = 255;
+      });
+      this.tex.lawn = dataTexture(gl, n, 1, data, { repeatS: true });
+    }
+    if (this.grass) this.scheduleGrass();
+    this.invalidate();
   }
 
   treeGeometry(key, kind, m) {
@@ -1102,6 +1156,8 @@ export class Scene3D {
     this.common(P.ground, light);
     this.bindTex(P.ground, "u_soil", this.tex.soil, 0);
     this.bindTex(P.ground, "u_blob", this.tex.blob, 1);
+    this.bindTex(P.ground, "u_lawn", this.tex.lawn ?? this.placeholder, 3);
+    gl.uniform1f(P.ground.uniforms.u_lawnMax, this.lawn ? this.lawn.max : 0);
     this.bindTex(P.ground, "u_clear", this.tex.clear, 2);
     gl.uniform3f(P.ground.uniforms.u_meadow, ...MEADOW);
     // De lejos las hojas ya no se distinguen: la tierra se tiñe del verde del pasto.
